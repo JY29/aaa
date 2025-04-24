@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>二维码扫描</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            text-align: center;
+        }
+        #video {
+            width: 100%;
+            max-width: 400px;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            max-width: 400px;
+            word-break: break-all;
+        }
+        button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h3>二维码扫描</h3>
+    <video id="video" autoplay playsinline></video>
+    <button id="startButton">开始扫描</button>
+    <div id="result">请点击“开始扫描”并对准二维码</div>
+
+    <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+    <script>
+        const video = document.getElementById('video');
+        const result = document.getElementById('result');
+        const startButton = document.getElementById('startButton');
+        let stream = null;
+
+        async function startCamera() {
+            result.textContent = '正在请求摄像头权限...';
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment', // 后置摄像头
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                await video.play();
+                startButton.textContent = '停止扫描';
+                result.textContent = '正在扫描二维码...';
+                scanQRCode();
+            } catch (err) {
+                result.textContent = '无法访问摄像头：' + err.message + '。请确保已授予摄像头权限并使用 HTTPS。';
+                startButton.textContent = '重试';
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                stream = null;
+            }
+            startButton.textContent = '开始扫描';
+            result.textContent = '已停止扫描，请点击“开始扫描”重试';
+        }
+
+        async function scanQRCode() {
+            const codeReader = new ZXing.BrowserQRCodeReader();
+            try {
+                const resultData = await codeReader.decodeFromVideoElement(video);
+                result.textContent = '扫描结果: ' + resultData.text;
+                stopCamera();
+            } catch (err) {
+                if (stream && stream.active) {
+                    result.textContent = '扫描中，未检测到二维码，请对准二维码';
+                    setTimeout(scanQRCode, 1000); // 继续扫描
+                } else {
+                    result.textContent = '扫描失败：' + err.message;
+                }
+            }
+        }
+
+        startButton.addEventListener('click', async () => {
+            if (stream && stream.active) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        });
+
+        window.addEventListener('unload', stopCamera);
+    </script>
+</body>
+</html>
