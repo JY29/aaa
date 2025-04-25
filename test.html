@@ -29,6 +29,16 @@
             max-width: 400px;
             word-break: break-all;
         }
+        #debug {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            max-width: 400px;
+            font-size: 12px;
+            text-align: left;
+            color: #666;
+        }
         button {
             margin-top: 10px;
             padding: 10px 20px;
@@ -42,66 +52,138 @@
         button:hover {
             background-color: #0056b3;
         }
+        .status {
+            margin-top: 10px;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .status.scanning {
+            background-color: #ffd700;
+            color: #000;
+        }
+        .status.success {
+            background-color: #28a745;
+            color: #fff;
+        }
+        .status.error {
+            background-color: #dc3545;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <h3>二维码扫描</h3>
     <video id="video" autoplay playsinline></video>
     <button id="startButton">开始扫描</button>
-    <div id="result">请点击“开始扫描”并对准二维码</div>
+    <div id="status" class="status"></div>
+    <div id="result">请点击"开始扫描"并对准二维码</div>
+    <div id="debug"></div>
 
     <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
     <script>
         const video = document.getElementById('video');
         const result = document.getElementById('result');
         const startButton = document.getElementById('startButton');
+        const status = document.getElementById('status');
+        const debug = document.getElementById('debug');
         let stream = null;
+        let scanInterval = null;
+
+        function updateDebug(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debug.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            debug.scrollTop = debug.scrollHeight;
+        }
+
+        function updateStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
 
         async function startCamera() {
+            updateDebug('正在请求摄像头权限...');
+            updateStatus('正在初始化摄像头...', 'scanning');
             result.textContent = '正在请求摄像头权限...';
+            
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: 'environment', // 后置摄像头
+                        facingMode: 'environment',
                         width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        height: { ideal: 720 },
+                        aspectRatio: { ideal: 1.777777778 }
                     }
                 });
+                
                 video.srcObject = stream;
                 await video.play();
+                
+                updateDebug('摄像头初始化成功');
+                updateDebug(`视频分辨率: ${video.videoWidth}x${video.videoHeight}`);
+                
                 startButton.textContent = '停止扫描';
+                updateStatus('正在扫描二维码...', 'scanning');
                 result.textContent = '正在扫描二维码...';
-                scanQRCode();
+                
+                startScanning();
             } catch (err) {
-                result.textContent = '无法访问摄像头：' + err.message + '。请确保已授予摄像头权限并使用 HTTPS。';
+                const errorMessage = `无法访问摄像头：${err.message}`;
+                updateDebug(`错误: ${errorMessage}`);
+                updateStatus('摄像头访问失败', 'error');
+                result.textContent = errorMessage + '。请确保已授予摄像头权限并使用 HTTPS。';
                 startButton.textContent = '重试';
             }
         }
 
         function stopCamera() {
+            if (scanInterval) {
+                clearInterval(scanInterval);
+                scanInterval = null;
+            }
+            
             if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+                stream.getTracks().forEach(track => {
+                    track.stop();
+                    updateDebug(`停止视频轨道: ${track.label}`);
+                });
                 video.srcObject = null;
                 stream = null;
             }
+            
             startButton.textContent = '开始扫描';
-            result.textContent = '已停止扫描，请点击“开始扫描”重试';
+            updateStatus('已停止扫描', '');
+            result.textContent = '已停止扫描，请点击"开始扫描"重试';
         }
 
         async function scanQRCode() {
             const codeReader = new ZXing.BrowserQRCodeReader();
             try {
+                updateDebug('尝试扫描二维码...');
                 const resultData = await codeReader.decodeFromVideoElement(video);
+                
+                updateDebug(`扫描成功: ${resultData.text}`);
+                updateStatus('扫描成功！', 'success');
                 result.textContent = '扫描结果: ' + resultData.text;
+                
                 stopCamera();
             } catch (err) {
                 if (stream && stream.active) {
+                    updateDebug('未检测到二维码，继续扫描...');
                     result.textContent = '扫描中，未检测到二维码，请对准二维码';
-                    setTimeout(scanQRCode, 1000); // 继续扫描
                 } else {
+                    updateDebug(`扫描错误: ${err.message}`);
+                    updateStatus('扫描失败', 'error');
                     result.textContent = '扫描失败：' + err.message;
                 }
             }
+        }
+
+        function startScanning() {
+            if (scanInterval) {
+                clearInterval(scanInterval);
+            }
+            scanInterval = setInterval(scanQRCode, 1000);
         }
 
         startButton.addEventListener('click', async () => {
